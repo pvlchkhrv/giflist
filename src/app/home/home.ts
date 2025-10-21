@@ -8,9 +8,7 @@ import { GifList } from './ui/gif-list';
   template: `
     <app-gif-list [gifs]="redditService.gifs()" class="grid-container"></app-gif-list>
   `,
-  imports: [
-    GifList
-  ]
+  imports: [GifList]
 })
 export default class HomeComponent {
   redditService = inject(RedditService);

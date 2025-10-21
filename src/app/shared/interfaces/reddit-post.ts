@@ -13,10 +13,33 @@ interface RedditPostData {
   url: string;
   thumbnail: string;
   num_comments: number;
+  url_overridden_by_dest: string;
 }
 
 interface RedditPreview {
+  enabled: boolean;
+  images: RedditPreviewImage[];
   reddit_video_preview: RedditVideoPreview;
+}
+
+interface RedditPreviewImage {
+  id: string;
+  variants: RedditPreviewImageVariants;
+}
+
+interface RedditPreviewImageVariants {
+  gif?: {
+    source: RedditImageSource;
+  };
+  mp4?: {
+    source: RedditImageSource;
+  };
+}
+
+interface RedditImageSource {
+  height: number;
+  width: number;
+  url: string;
 }
 
 interface RedditVideoPreview {

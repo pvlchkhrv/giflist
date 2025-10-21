@@ -1,8 +1,8 @@
 import { NgStyle } from '@angular/common';
-import { Component, computed, effect, ElementRef, input, signal, ViewChild } from '@angular/core';
+import { Component, computed, effect, ElementRef, input, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { combineLatest, EMPTY, filter, fromEvent, Subject, switchMap } from 'rxjs';
+import { combineLatest, EMPTY, fromEvent, Subject, switchMap } from 'rxjs';
 
 interface GifPlayerState {
   playing: boolean;
@@ -10,23 +10,19 @@ interface GifPlayerState {
 }
 
 @Component({
+  standalone: true,
   selector: 'app-gif-player',
   template: `
     @if (status() === 'loading') {
-      <mat-progress-spinner mode="indeterminate" diameter="50"/>
+      <mat-progress-spinner mode="indeterminate" diameter="50" />
     }
     <div
+      class="preload-background"
       [style.background]="'url(' + thumbnail() + ') 50% 50% / cover no-repeat'"
-      [ngStyle]="
+      [class.blur]="
         status() !== 'loaded' &&
         !['/assets/nsfw.png', '/assets/default.png'].includes(thumbnail())
-          ? {
-              filter: 'blur(10px) brightness(0.6)',
-              transform: 'scale(1.1)'
-            }
-          : {}
       "
-      class="preload-background"
     >
       <video
         (click)="togglePlay$.next()"
@@ -53,6 +49,11 @@ interface GifPlayerState {
         height: auto;
       }
 
+      .blur {
+        filter: blur(10px) brightness(0.6);
+        transform: scale(1.1);
+      }
+
       video {
         width: 100%;
         max-height: 80vh;
@@ -69,21 +70,14 @@ interface GifPlayerState {
       }
     `,
   ],
-  imports: [MatProgressSpinnerModule, NgStyle],
+  imports: [MatProgressSpinnerModule],
 })
 export class GifPlayer {
   src = input.required<string>();
   thumbnail = input.required<string>();
 
-  videoElement = signal<HTMLVideoElement | undefined>(undefined);
-
-  @ViewChild('gifPlayer') set video(element: ElementRef<HTMLVideoElement>) {
-    this.videoElement.set(element.nativeElement);
-  }
-
-  videoElement$ = toObservable(this.videoElement).pipe(
-    filter((element): element is HTMLVideoElement => !!element),
-  )
+  videoElement = viewChild.required<ElementRef<HTMLVideoElement>>('gifPlayer');
+  videoElement$ = toObservable(this.videoElement);
 
   state = signal<GifPlayerState>({
     playing: false,
@@ -96,16 +90,17 @@ export class GifPlayer {
 
   // sources
   togglePlay$ = new Subject<void>();
-  videoLoadStart$ = combineLatest([
-    this.videoElement$,
-    toObservable(this.playing),
-  ]).pipe(
-    switchMap(([element, playing]) =>
-      playing ? fromEvent(element, 'loadstart') : EMPTY
-    )
+
+  // note: unfortunately, we need to check if a play has been triggered here as
+  // subscribing to the 'loadstart' event will actually trigger a load, which we
+  // don't want unless it is supposed to be playing
+  videoLoadStart$ = this.togglePlay$.pipe(
+    switchMap(() => this.videoElement$),
+    switchMap(({ nativeElement }) => fromEvent(nativeElement, 'loadstart')),
   );
+
   videoLoadComplete$ = this.videoElement$.pipe(
-    switchMap((element) => fromEvent(element, 'loadeddata'))
+    switchMap(({ nativeElement }) => fromEvent(nativeElement, 'loadeddata')),
   );
 
   constructor() {
@@ -128,7 +123,7 @@ export class GifPlayer {
       );
 
     effect(() => {
-      const video = this.videoElement();
+      const { nativeElement: video } = this.videoElement();
       const playing = this.playing();
       const status = this.status();
 

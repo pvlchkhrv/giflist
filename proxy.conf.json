@@ -1,10 +1,9 @@
 {
-  "/reddit-api": {
+  "/reddit": {
     "target": "https://www.reddit.com",
     "secure": true,
     "changeOrigin": true,
-    "pathRewrite": {
-      "^/reddit-api": ""
-    }
+    "logLevel": "debug",
+    "pathRewrite": { "^/reddit": "" }
   }
 }
