@@ -1,46 +1,129 @@
 import { HttpClient } from '@angular/common/http';
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { catchError, EMPTY, map, of } from 'rxjs';
+import { FormControl } from '@angular/forms';
+import {
+  catchError,
+  concatMap,
+  debounceTime,
+  distinctUntilChanged,
+  EMPTY,
+  expand,
+  map,
+  startWith,
+  Subject,
+  switchMap
+} from 'rxjs';
 import { Gif, RedditPost, RedditResponse } from '../interfaces';
 
 export interface GifsState {
   gifs: Gif[];
+  error: string | null;
+  loading: boolean;
+  lastKnownGif: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
 export class RedditService {
   private http = inject(HttpClient);
+  subredditFormControl = new FormControl<string>('', { nonNullable: true });
 
   // state
   private gifsState = signal<GifsState>({
-    gifs: []
+    gifs: [],
+    error: null,
+    loading: true,
+    lastKnownGif: null,
   });
 
   // selectors
   gifs = computed(() => this.gifsState().gifs);
+  error = computed(() => this.gifsState().error);
+  loading = computed(() => this.gifsState().loading);
+  lastKnownGif = computed(() => this.gifsState().lastKnownGif);
 
   // sources
-  gifsLoaded$ = this.fetchFromReddit('gifs');
+  pagination$ = new Subject<string | null>();
+  private subredditChanged$ = this.subredditFormControl.valueChanges.pipe(
+    debounceTime(300),
+    distinctUntilChanged(),
+    startWith('gifs'),
+    map((subreddit) => (subreddit.length ? subreddit : 'gifs'))
+  );
+  private gifsLoaded$ = this.subredditChanged$.pipe(
+    switchMap((subreddit) =>
+      this.pagination$.pipe(
+        startWith(null),
+        concatMap((lastKnownGif) =>
+          this.fetchFromReddit(subreddit, lastKnownGif, 20).pipe(
+            expand((response, index) => {
+              const { gifs, gifsRequired, lastKnownGif } = response;
+              const remainingGifsToFetch = gifsRequired - gifs.length;
+              const maxAttempts = 15;
+
+              const shouldKeepTrying =
+                remainingGifsToFetch > 0 &&
+                index < maxAttempts &&
+                lastKnownGif !== null;
+
+              return shouldKeepTrying
+                ? this.fetchFromReddit(
+                  subreddit,
+                  lastKnownGif,
+                  remainingGifsToFetch
+                )
+                : EMPTY;
+            })
+          )
+        )
+      )
+    )
+  );
 
   constructor() {
     // reducers
-    this.gifsLoaded$.pipe(takeUntilDestroyed()).subscribe((gifs) => {
+    this.gifsLoaded$.pipe(takeUntilDestroyed()).subscribe((response) => {
       this.gifsState.update((state) => ({
         ...state,
-        gifs: [...state.gifs, ...gifs],
+        gifs: [...state.gifs, ...response.gifs],
+        loading: false,
+        lastKnownGif: response.lastKnownGif,
+      }));
+    });
+
+    this.subredditChanged$.pipe(takeUntilDestroyed()).subscribe(() => {
+      this.gifsState.update((state) => ({
+        ...state,
+        gifs: [],
+        loading: true,
+        lastKnownGif: null,
       }));
     });
   }
 
-  private fetchFromReddit(subreddit: string) {
+  private fetchFromReddit(
+    subreddit: string,
+    after: string | null,
+    gifsRequired: number
+  ) {
     return this.http
       .get<RedditResponse>(
-        `/reddit/r/${subreddit}/hot/.json?limit=100`
+        `/reddit/r/${subreddit}/hot/.json?limit=100` + (after ? `&after=${after}` : '')
       )
       .pipe(
         catchError((err) => EMPTY),
-        map((response) => this.convertRedditPostsToGifs(response.data.children))
+        map((response) => {
+          const posts = response.data.children;
+          const lastKnownGif = posts.length
+            ? posts[posts.length - 1].data.name
+            : null;
+
+          return {
+            gifs: this.convertRedditPostsToGifs(posts),
+            gifsRequired,
+            lastKnownGif,
+          };
+        })
       );
   }
 
@@ -75,7 +158,7 @@ export class RedditService {
     if (url.endsWith('.mp4')) return unescape(url);
     if (url.endsWith('.gifv')) return unescape(url.replace('.gifv', '.mp4'));
     if (url.endsWith('.webm')) return unescape(url.replace('.webm', '.mp4'));
-    if (url.endsWith('.gif'))  return unescape(url); // allow plain GIFs as a fallback
+    if (url.endsWith('.gif')) return unescape(url); // allow plain GIFs as a fallback
 
     // Hosted reddit videos
     if (post.data.secure_media?.reddit_video?.fallback_url) {
