@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl } from '@angular/forms';
@@ -79,6 +79,7 @@ export class RedditService {
       )
     )
   );
+  private error$ = new Subject<string | null>();
 
   constructor() {
     // reducers
@@ -99,6 +100,13 @@ export class RedditService {
         lastKnownGif: null,
       }));
     });
+
+    this.error$.pipe(takeUntilDestroyed()).subscribe((error) =>
+      this.gifsState.update((state) => ({
+        ...state,
+        error,
+      }))
+    );
   }
 
   private fetchFromReddit(
@@ -111,7 +119,10 @@ export class RedditService {
         `/reddit/r/${subreddit}/hot/.json?limit=100` + (after ? `&after=${after}` : '')
       )
       .pipe(
-        catchError((err) => EMPTY),
+        catchError((err) => {
+          this.handleError(err);
+          return EMPTY;
+        }),
         map((response) => {
           const posts = response.data.children;
           const lastKnownGif = posts.length
@@ -187,5 +198,16 @@ export class RedditService {
     if (xMp4) return unescape(xMp4);
 
     return null;
+  }
+
+  private handleError(err: HttpErrorResponse) {
+    // Handle specific error cases
+    if (err.status === 404 && err.url) {
+      this.error$.next(`Failed to load gifs for /r/${err.url.split('/')[4]}`);
+      return;
+    }
+
+    // Generic error if no cases match
+    this.error$.next(err.statusText);
   }
 }
