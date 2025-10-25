@@ -1,8 +1,8 @@
-import { NgStyle } from '@angular/common';
 import { Component, computed, effect, ElementRef, input, signal, viewChild } from '@angular/core';
-import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { toObservable } from '@angular/core/rxjs-interop';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { combineLatest, EMPTY, fromEvent, Subject, switchMap } from 'rxjs';
+import { connect } from 'ngxtension/connect';
+import { fromEvent, map, merge, Subject, switchMap } from 'rxjs';
 
 interface GifPlayerState {
   playing: boolean;
@@ -14,7 +14,7 @@ interface GifPlayerState {
   selector: 'app-gif-player',
   template: `
     @if (status() === 'loading') {
-      <mat-progress-spinner mode="indeterminate" diameter="50" />
+      <mat-progress-spinner mode="indeterminate" diameter="50"/>
     }
     <div
       class="preload-background"
@@ -104,23 +104,13 @@ export class GifPlayer {
   );
 
   constructor() {
-    this.videoLoadStart$
-      .pipe(takeUntilDestroyed())
-      .subscribe(() =>
-        this.state.update((state) => ({ ...state, status: 'loading' }))
-      );
-
-    this.videoLoadComplete$
-      .pipe(takeUntilDestroyed())
-      .subscribe(() =>
-        this.state.update((state) => ({ ...state, status: 'loaded' }))
-      );
-
-    this.togglePlay$
-      .pipe(takeUntilDestroyed())
-      .subscribe(() =>
-        this.state.update((state) => ({ ...state, playing: !state.playing }))
-      );
+    const nextState$ = merge(
+      this.videoLoadStart$.pipe(map(() => ({ status: 'loading' as const }))),
+      this.videoLoadComplete$.pipe(map(() => ({ status: 'loaded' as const })))
+    );
+    connect(this.state)
+      .with(nextState$)
+      .with(this.togglePlay$, (state) => ({ playing: !state.playing }));
 
     effect(() => {
       const { nativeElement: video } = this.videoElement();
